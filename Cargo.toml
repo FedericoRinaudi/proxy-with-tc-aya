@@ -1,0 +1,2 @@
+[workspace]
+members = ["xtask", "proxy-with-tc-aya", "proxy-with-tc-aya-common"]
