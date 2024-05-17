@@ -16,7 +16,7 @@ use network_types::{
     tcp::TcpHdr,
 };
 
-const PROXY_IP: u32 = 0xc0a83805;
+const CLIENT_IP: u32 = 0xc0a83803;
 const PADDING_LEN: i32 = -32;
 
 #[classifier]
@@ -37,14 +37,10 @@ fn try_proxy_with_tc_aya(mut ctx: TcContext) -> Result<i32, i32> {
     let ipv4_hdr: Ipv4Hdr = ctx.load(EthHdr::LEN).map_err(|_| TC_ACT_OK)?;
     let source = u32::from_be(ipv4_hdr.src_addr);
 
-    let action = TC_ACT_OK;
-
-    if source != PROXY_IP {
-        info!(&ctx, "NON PROXY_IP: {:x}", source);
+    if source != CLIENT_IP {
+        info!(&ctx, "NON CLIENT_IP: {:x}", source);
         return Ok(TC_ACT_OK);
     }
-
-    info!(&ctx, "DEST {:i}, ACTION {}", source, action);
 
     if ipv4_hdr.proto != IpProto::Tcp.into() {
         info!(&ctx, "NON TCP");
@@ -55,18 +51,19 @@ fn try_proxy_with_tc_aya(mut ctx: TcContext) -> Result<i32, i32> {
     let tcp_offset = EthHdr::LEN + ipv4_len;
     let tcp_hdr: TcpHdr = ctx.load(tcp_offset).map_err(|_| TC_ACT_OK)?;
     let tcp_len: usize = (tcp_hdr.doff() << 2).into();
-    let http_end = tcp_offset + tcp_len;
+    let http_offset = tcp_offset + tcp_len;
 
-    if ctx.len() <= http_end as u32 {
-        info!(&ctx, "NO HTTP");
+    info!(&ctx, "len {}", ctx.len());
+
+    if ctx.len() <= http_offset as u32 {
+        info!(&ctx, "NO HTTP, len: {} {}", ctx.len(), ctx.data_end() as usize - ctx.data() as usize);
         return Ok(TC_ACT_OK);
     }
-
-    info!(&ctx, "HTTP");
 
     ctx.adjust_room(PADDING_LEN, BPF_ADJ_ROOM_NET, 0).map_err(|_| TC_ACT_OK)?;
     ctx.store(tcp_offset, &tcp_hdr, 0).map_err(|_| TC_ACT_OK)?;
 
+    info!(&ctx, "ADJUSTED, len: {} {}", ctx.len(), ctx.data_end() as usize - ctx.data() as usize);
 
     Ok(TC_ACT_OK)
 }
